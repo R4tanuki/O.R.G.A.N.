@@ -31,4 +31,5 @@ Both reuse existing node groups if they are already in the project, and remove t
 
 ## Notes
 The embedded shaders were saved with Blender 5.2, so they may not load in older versions (they WON'T work in older versions).
+
 All of these things work according to the way I (ME !!) work, so they might actually feel clunky or straight up unnecessary to you.
