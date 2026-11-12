@@ -36,6 +36,10 @@ Strive Shader: imports the node groups and the Sun object from a .blend embedded
 
 Xrd Shader: Same but with Xrd. Have a good one.
 
+Decal/Damage: imports the node groups used for displaying decal and damage parts. It overwrites the current material as well.
+
+Outline: imports both the node groups and the geometry nodes necessary to add an outline to a mesh.
+
 Both reuse existing node groups if they are already in the project, and remove the junk material_preview_dummy object that Blender creates.
 
 ## Notes
