@@ -1,7 +1,7 @@
 bl_info = {
     "name": "O.R.G.A.N. - Shader Import",
     "author": "Ratanuki",
-    "version": (1, 0, 0),
+    "version": (1, 0, 1),
     "blender": (2, 80, 0),
     "location": "View3D > Sidebar (N) > O.R.G.A.N. > O.R.G.A.N.: Shader Import",
     "description": "Optional extension of O.R.G.A.N.: imports the Strive, Xrd, Decal/Damage and Outline shaders.",
@@ -10,10 +10,13 @@ bl_info = {
 
 import base64
 import os
+import re
 import tempfile
 import traceback
 
 import bpy
+
+_ADDON_VERSION = "1.0.1"
 
 
 def _set_blended(material):
@@ -114,7 +117,8 @@ _DECAL_MATERIAL_NAME = "Decal/Damage"
 _OUTLINE_MAIN_GROUP = "Outline - Strive"  # name given to the shader group
 _OUTLINE_MAIN_GROUP_SOURCE = "Outline"  # its name inside the embedded .blend
 _OUTLINE_MATERIAL_NAME = "Outline"
-_OUTLINE_GN_GROUP = "Outline"  # Geometry Nodes group (embedded as _OUTLINE_GN_B64)
+_OUTLINE_GN_GROUP = "Outline"  # name of the Geometry Nodes group inside the embedded .blend (_OUTLINE_GN_B64)
+_OUTLINE_GN_GROUP_FINAL = "ASW Outline"  # name given to it in the project (shown in the modifier)
 
 # Values of the Outline group node in the original material (sockets that are not connected)
 _OUTLINE_GROUP_VALUES = {
@@ -560,6 +564,7 @@ class _ShaderImportOperator:
     rename_legacy_main = False       # rename an older import of the main group to its final name
     extra_blend_data_name = ""       # second embedded .blend with extra (Geometry Nodes) groups
     extra_groups = ()                # names of the groups to import from that file
+    extra_group_renames = {}         # Geometry Nodes groups to rename after importing {old: new}
 
     def execute(self, context):
         label = self.shader_label
@@ -604,19 +609,45 @@ class _ShaderImportOperator:
         # Extra Geometry Nodes groups (imported after the rename above, so their names are free)
         extra_groups = []
         if self.extra_blend_data_name:
-            wanted = [name for name in self.extra_groups if not _has_geometry_group(name)]
+            renames = self.extra_group_renames
+            # An older import kept the original name: give it the final one
+            # (including copies Blender numbered, like "Outline.001")
+            for old, new in renames.items():
+                if _has_geometry_group(new):
+                    continue
+                legacy = re.compile(r"^" + re.escape(old) + r"(\.\d{3})?$")
+                for grp in sorted(bpy.data.node_groups, key=lambda g: g.name):
+                    if grp.bl_idname == 'GeometryNodeTree' and legacy.match(grp.name):
+                        grp.name = new
+                        break
+            wanted = [
+                name for name in self.extra_groups
+                if not _has_geometry_group(renames.get(name, name))
+            ]
             if wanted:
                 try:
-                    _, loaded, _unused = _append_from_embedded(
+                    requested_gn, loaded, _unused = _append_from_embedded(
                         self.extra_blend_data_name,
                         lambda names: [name for name in names if name in wanted],
                     )
+                    for name, grp in zip(requested_gn, loaded):
+                        if grp is not None and name in renames:
+                            grp.name = renames[name]
                     extra_groups = [grp for grp in loaded if grp is not None]
                 except Exception as exc:
                     self.report(
                         {'ERROR'},
                         f"Could not read the embedded {label} Geometry Nodes group: {exc}"
                     )
+
+        # Safety pass: a Geometry Nodes group Blender numbered ("Outline.001") gets its final name
+        for old, new in self.extra_group_renames.items():
+            if _has_geometry_group(new):
+                continue
+            for grp in extra_groups:
+                if grp.bl_idname == 'GeometryNodeTree' and (grp.name == old or grp.name.startswith(old + ".")):
+                    grp.name = new
+                    break
 
         imported = []
 
@@ -656,7 +687,7 @@ class _ShaderImportOperator:
                 self.report({'INFO'}, f"The {label} shader is already in this project")
             return {'CANCELLED'}
 
-        self.report({'INFO'}, f"{label} shader imported: " + ", ".join(imported))
+        self.report({'INFO'}, f"[Shader Import v{_ADDON_VERSION}] {label} shader imported: " + ", ".join(imported))
         return {'FINISHED'}
 
 
@@ -719,6 +750,7 @@ class ORGAN_OT_import_outline_shader(_ShaderImportOperator, bpy.types.Operator):
     rename_legacy_main = True
     extra_blend_data_name = "_OUTLINE_GN_B64"
     extra_groups = (_OUTLINE_GN_GROUP,)
+    extra_group_renames = {_OUTLINE_GN_GROUP: _OUTLINE_GN_GROUP_FINAL}
     sun_name = ""  # this file has no Sun
     material_name = _OUTLINE_MATERIAL_NAME
     build_nodes = staticmethod(_build_outline_nodes)
